@@ -1,26 +1,49 @@
-# Byte-compiled / optimized / DLL files
+# ─── Python ─────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.so
+*.egg
+*.egg-info/
+dist/
+build/
 
-# Virtual environment
+# ─── Virtual Environments ───────────────────────────────────────────────
 .venv/
-env/
 venv/
+env/
 
-# Env variables
+# ─── Environment Variables ──────────────────────────────────────────────
 .env
+.env.*
 
-# IDE / Editor
+# ─── OS & Editor Configs ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Pytest
+# ─── Testing / Coverage ─────────────────────────────────────────────────
+.coverage
 .pytest_cache/
+htmlcov/
 
-# Migrations or SQLite DB
+# ─── Logs & Database Files ──────────────────────────────────────────────
+*.log
 *.sqlite3
+*.db
+*.bak
+
+# ─── Migrations (Optional) ──────────────────────────────────────────────
+migrations/
+alembic/
+
+# ─── Jupyter Notebooks (if any) ─────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── MyPy / Type Checking ───────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+
+# ─── FastAPI Static / Media (Optional) ──────────────────────────────────
+static/
+media/
