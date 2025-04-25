@@ -1,18 +1,16 @@
-import uuid
-from app.models.items import ItemIn, ItemOut
+from sqlmodel import Session, select
+from app.models.items import Item, ItemCreate, ItemRead
+from app.db.session import get_session
 
-# Temporary in-memory store (can later be replaced with DB)
-items_db: list[ItemIn] = []
+def create_item(item: ItemCreate) -> ItemRead:
+    with next(get_session()) as session:
+        db_item = Item.model_validate(item)
+        session.add(db_item)
+        session.commit()
+        session.refresh(db_item)
+        return ItemRead.model_validate(db_item)
 
-def create_item(item: ItemIn) -> ItemOut:
-    new_item = ItemOut(
-        id=uuid.uuid4(),
-        name=item.name,
-        price=item.price,
-        store_name=item.store_name
-    )
-    items_db.append(new_item)
-    return new_item
-
-def list_items() -> list[ItemIn]:
-    return items_db
+def list_items() -> list[ItemRead]:
+    with next(get_session()) as session:
+        items = session.exec(select(Item)).all()
+        return [ItemRead.model_validate(i) for i in items]

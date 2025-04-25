@@ -1,44 +1,44 @@
-# app/services/purchase_service.py
-
 from uuid import uuid4
 from fastapi import HTTPException
+from sqlmodel import Session, func, select
+from app.db.session import get_session
 from app.models.items import ItemIn
-from app.models.purchases import PurchaseIn, PurchaseOut, PurchaseItemOut
+from app.models.purchases import AdditionalCostOut, DiscountOut, Purchase, PurchaseItem, AdditionalCost, Discount
+from app.models.purchases import PurchaseIn, PurchaseItemOut, PurchaseOut
 from app.services.item_service import create_item
-
-purchases: list[PurchaseOut] = []
-
-# services/purchase_service.py
-
+    
+    
 def handle_purchase(purchase: PurchaseIn) -> PurchaseOut:
     expanded_items = []
-    subtotal = sum(item["ordered_price"] for item in expanded_items)
-    additional_cost_total = sum(cost.amount for cost in purchase.additional_cost or [])
-    discount_total = sum(d.amount for d in purchase.discount or [])
+    subtotal = 0
 
-    # Validation for items: Ensure ordered_price is divisible by amount and non-zero
+    # Step 1: Expand & validate each item
     for item in purchase.items:
         if item.amount == 0:
             raise HTTPException(status_code=400, detail="Amount cannot be zero.")
         if item.ordered_price % item.amount != 0:
-            raise HTTPException(status_code=400, detail=f"Ordered price {item.ordered_price} must be divisible by amount {item.amount}.")
-        price = round(item.ordered_price / item.amount)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ordered price {item.ordered_price} must be divisible by amount {item.amount}."
+            )
+
+        price_per_unit = round(item.ordered_price / item.amount)
+        subtotal += item.ordered_price
         expanded_items.append({
             "name": item.name,
-            "price": price,
+            "price": price_per_unit,
             "amount": item.amount,
             "ordered_price": item.ordered_price,
             "save_item": item.save_item
         })
 
-    # Validate subtotal, must be > 0
-    subtotal = sum(item["ordered_price"] for item in expanded_items)
     if subtotal == 0:
         raise HTTPException(status_code=400, detail="Subtotal cannot be zero.")
 
+    # Step 2: Distribute additional costs proportionally
+    additional_cost_total = sum(c.amount for c in (purchase.additional_cost or []))
     adjusted_items = []
     for item in expanded_items:
-        # Save item only if save_item is True
         if item["save_item"]:
             create_item(ItemIn(name=item["name"], price=item["price"]))
 
@@ -47,14 +47,16 @@ def handle_purchase(purchase: PurchaseIn) -> PurchaseOut:
         adjusted_price = item["ordered_price"] + added_cost
         adjusted_items.append({
             "name": item["name"],
+            "amount": item["amount"],
+            "ordered_price": item["ordered_price"],
             "original_price": item["ordered_price"],
-            "adjusted_price": adjusted_price,
-            "amount": item["amount"]
+            "adjusted_price": adjusted_price
         })
 
-    adjusted_total = sum(i["adjusted_price"] for i in adjusted_items)
+    # Step 3: Distribute discounts proportionally
+    discount_total = sum(d.amount for d in (purchase.discount or []))
+    adjusted_total = sum(item["adjusted_price"] for item in adjusted_items)
 
-    # Validate adjusted total (should match the final total after discounts and additional cost)
     if adjusted_total == 0:
         raise HTTPException(status_code=400, detail="Adjusted total cannot be zero.")
 
@@ -66,39 +68,109 @@ def handle_purchase(purchase: PurchaseIn) -> PurchaseOut:
         final_items.append({
             "name": item["name"],
             "amount": item["amount"],
-            "ordered_price": item["original_price"],
+            "ordered_price": item["ordered_price"],
             "original_price": item["original_price"],
             "final_price": final_price
         })
 
+    # Step 4: Verify final total matches
     current_total = sum(i["final_price"] for i in final_items)
-
-    # Validate that the current total matches the provided final_total
     delta = purchase.final_total - current_total
-    if abs(delta) > 3:  # Allow small rounding difference
-        raise HTTPException(status_code=400, detail=f"Calculated total {current_total} does not match provided final_total {purchase.final_total}.")
+    if abs(delta) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Calculated total {current_total} does not match provided final_total {purchase.final_total}."
+        )
 
-    # Adjust the first item if necessary to match the final total
     if delta != 0:
         final_items[0]["final_price"] += delta
 
-    result = PurchaseOut(
-        id=uuid4(),
-        items=[PurchaseItemOut(**item) for item in final_items],
-        final_total=purchase.final_total,
-        items_subtotal=subtotal,
-        additional_cost_total=sum(c.amount for c in purchase.additional_cost) if purchase.additional_cost else 0,
-        discount_total=sum(d.amount for d in purchase.discount) if purchase.discount else 0
-    )
+    # Step 5: Save to DB
+    with next(get_session()) as session:
+        db_purchase = Purchase(
+            final_total=purchase.final_total,
+            items_subtotal=subtotal,
+            additional_cost_total=additional_cost_total,
+            discount_total=discount_total
+        )
+        session.add(db_purchase)
+        session.flush()  # Assigns ID to db_purchase
 
-    purchases.append(result)
-    return result
+        for item in final_items:
+            session.add(PurchaseItem(
+                name=item["name"],
+                amount=item["amount"],
+                ordered_price=item["ordered_price"],
+                original_price=item["original_price"],
+                final_price=item["final_price"],
+                purchase_id=db_purchase.id
+            ))
 
+        for cost in (purchase.additional_cost or []):
+            session.add(AdditionalCost(
+                name=cost.name,
+                amount=cost.amount,
+                purchase_id=db_purchase.id
+            ))
 
+        for disc in (purchase.discount or []):
+            session.add(Discount(
+                name=disc.name,
+                amount=disc.amount,
+                purchase_id=db_purchase.id
+            ))
 
-def list_all(page: int = 1, limit: int = 10):
-    total_data = len(purchases)
-    start = (page - 1) * limit
-    end = start + limit
-    paginated_data = purchases[start:end]
-    return paginated_data, total_data
+        session.commit()
+
+        return PurchaseOut(
+            id=db_purchase.id,
+            items=[PurchaseItemOut(**item) for item in final_items],
+            discounts=[],  # ← fix
+            additional_costs=[],  # ← fix
+            items_subtotal=subtotal,
+            additional_cost_total=additional_cost_total,
+            discount_total=discount_total,
+            final_total=purchase.final_total,
+        )
+
+def list_all(page: int, limit: int):
+    with next(get_session()) as session:
+        offset = (page - 1) * limit
+
+        # Get paginated purchases, auto-load relationships
+        purchases = session.exec(
+            select(Purchase).offset(offset).limit(limit)
+        ).all()
+
+        total_data = session.exec(select(func.count()).select_from(Purchase)).one()
+
+        enriched_purchases = []
+        for purchase in purchases:
+            enriched = PurchaseOut(
+                id=purchase.id,
+                final_total=purchase.final_total,
+                items_subtotal=purchase.items_subtotal,
+                discount_total=purchase.discount_total,
+                additional_cost_total=purchase.additional_cost_total,
+                items=[
+                    PurchaseItemOut(
+                        name=item.name,
+                        ordered_price=item.ordered_price,
+                        amount=item.amount,
+                        original_price=item.original_price,
+                        final_price=item.final_price,
+                    )
+                    for item in purchase.items
+                ],
+                discounts=[
+                    DiscountOut(name=disc.name, amount=disc.amount)
+                    for disc in purchase.discounts
+                ],
+                additional_costs=[
+                    AdditionalCostOut(name=cost.name, amount=cost.amount)
+                    for cost in purchase.additional_costs
+                ]
+            )
+            enriched_purchases.append(enriched)
+
+        return enriched_purchases, total_data

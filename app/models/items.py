@@ -1,11 +1,20 @@
-from pydantic import BaseModel
 from typing import Optional
-from uuid import UUID
+from sqlmodel import SQLModel, Field
+from uuid import UUID, uuid4
 
-class ItemIn(BaseModel):
+class ItemBase(SQLModel):
     name: str
     price: int
     store_name: Optional[str] = None
 
-class ItemOut(ItemIn):
+class Item(ItemBase, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+
+class ItemCreate(ItemBase):
+    pass
+
+class ItemIn(ItemCreate):
+    pass
+
+class ItemRead(ItemBase):
     id: UUID
