@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import item_router, purchase_router
+from app.routers import item_router, purchase_router, person_router
 from app.routers.ocr_request import ocr_request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,6 +9,7 @@ app = FastAPI()
 # Register routers
 app.include_router(item_router)
 app.include_router(purchase_router)
+app.include_router(person_router)
 app.include_router(ocr_request.router, prefix="/ocr", tags=["OCR"])
 
 @app.get("/")
