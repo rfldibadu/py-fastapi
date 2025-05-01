@@ -2,7 +2,7 @@ from typing import List
 from sqlmodel import SQLModel, Field, Relationship
 from uuid import UUID
 
-from app.models.persons import Person
+import app.models.persons
 import app.models.purchases
 
 class PurchasePersonLink(SQLModel, table=True):
@@ -11,4 +11,4 @@ class PurchasePersonLink(SQLModel, table=True):
 
     # Relationships using string references to avoid circular import
     purchase_item: "app.models.purchases.PurchaseItem" = Relationship(back_populates="persons_link")
-    person: "Person" = Relationship(back_populates="purchases")
+    person: "app.models.persons.Person" = Relationship(back_populates="purchases")

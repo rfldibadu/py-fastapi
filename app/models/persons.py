@@ -2,7 +2,10 @@ from sqlmodel import SQLModel, Field, Relationship
 from uuid import UUID, uuid4
 from typing import TYPE_CHECKING, Optional, List
 
-import app.models.purchase_person_link  # <<< NOT from import, but import module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import app.models.purchase_person_link
 
 class Person(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
